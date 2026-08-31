@@ -1,26 +1,16 @@
 'use client';
-// Job detail page — full info for one approved job.
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { getSupabase } from '@/lib/supabase-client';
 import { useAuth } from '@/lib/auth-context';
-import { Job } from '@/lib/types';
-import { CategoryBadge } from '@/lib/categories';
+import { Job, whatsappApplyUrl, formatSalaryFull } from '@/lib/types';
 import { SaveButton } from '@/components/save-button';
 import { ReportButton } from '@/components/report-button';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { ArrowLeft, MapPin, Banknote, Briefcase, Phone, Mail, Inbox } from 'lucide-react';
+import { ArrowLeft, MapPin, Briefcase, MessageCircle, Phone, GraduationCap, Moon, Car, Languages, Users, Inbox } from 'lucide-react';
 import { formatRelative } from '@/lib/format';
-
-// Build a readable location string from location_type + city_name + area.
-function locationLabel(job: Job): string {
-  const area = job.location;
-  if (job.location_type === 'Remote') return `Remote (${area})`;
-  if (job.location_type === 'Other City') return `${job.city_name || 'Other City'} — ${area}`;
-  return `Delhi NCR — ${area}`;
-}
 
 export default function JobDetailPage() {
   const supabase = getSupabase();
@@ -37,9 +27,7 @@ export default function JobDetailPage() {
         .select('*')
         .eq('id', id)
         .maybeSingle();
-      // Only show approved jobs to the public. (Recruiters viewing their own
-      // pending post isn't required for Phase 0.)
-      if (data && data.status === 'approved') setJob(data as Job);
+      if (data && (data.status === 'live' || data.status === 'approved')) setJob(data as Job);
       setLoading(false);
     })();
   }, [supabase, id]);
@@ -51,13 +39,20 @@ export default function JobDetailPage() {
       <div className="flex flex-col items-center justify-center py-20 text-center">
         <Inbox className="h-8 w-8 text-slate-300" />
         <p className="mt-2 text-slate-600">This job is no longer available.</p>
-        <Link href="/jobs" className="mt-4"><Button variant="outline"><ArrowLeft className="mr-2 h-4 w-4" />Back to jobs</Button></Link>
+        <Link href="/jobs" className="mt-4">
+          <Button variant="outline"><ArrowLeft className="mr-2 h-4 w-4" />Back to jobs</Button>
+        </Link>
       </div>
     );
   }
 
   const canSave = !!user && profile?.account_type === 'job_seeker';
-  const isEmail = /@/.test(job.contact_email_or_phone);
+  const locationStr = job.location_type === 'Remote'
+    ? 'Remote'
+    : [job.city, job.area].filter(Boolean).join(', ') || job.location;
+  const waUrl = job.whatsapp_number
+    ? whatsappApplyUrl(job.whatsapp_number, job.role_title, job.company_name, job.city || 'NCR')
+    : null;
 
   return (
     <div className="mx-auto max-w-2xl space-y-5">
@@ -67,7 +62,7 @@ export default function JobDetailPage() {
 
       <div className="rounded-xl border border-slate-200 bg-white p-5">
         <div className="flex items-start justify-between gap-3">
-          <div>
+          <div className="min-w-0">
             <h1 className="text-xl font-bold text-slate-900 sm:text-2xl">{job.role_title}</h1>
             <p className="text-slate-600">{job.company_name}</p>
           </div>
@@ -77,17 +72,20 @@ export default function JobDetailPage() {
           </div>
         </div>
 
-        <div className="mt-3"><CategoryBadge category={job.category} /></div>
+        <div className="mt-4 rounded-lg bg-blue-50 p-3">
+          <p className="text-2xl font-bold text-blue-700">
+            {job.salary_min || job.salary_max ? formatSalaryFull(job.salary_min, job.salary_max) : job.salary_range}
+          </p>
+        </div>
 
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          <InfoRow icon={<MapPin className="h-4 w-4" />} label="Location" value={locationLabel(job)} />
-          <InfoRow icon={<Banknote className="h-4 w-4" />} label="Salary" value={job.salary_range} />
+          <InfoRow icon={<MapPin className="h-4 w-4" />} label="Location" value={locationStr} />
           <InfoRow icon={<Briefcase className="h-4 w-4" />} label="Experience" value={job.experience_required} />
-          <InfoRow
-            icon={isEmail ? <Mail className="h-4 w-4" /> : <Phone className="h-4 w-4" />}
-            label="Contact"
-            value={job.contact_email_or_phone}
-          />
+          {job.shift && <InfoRow icon={<Moon className="h-4 w-4" />} label="Shift" value={job.shift} />}
+          {job.education && <InfoRow icon={<GraduationCap className="h-4 w-4" />} label="Education" value={job.education} />}
+          {job.cab && <InfoRow icon={<Car className="h-4 w-4" />} label="Cab" value="Pickup & drop provided" />}
+          {job.languages && <InfoRow icon={<Languages className="h-4 w-4" />} label="Languages" value={job.languages === 'both' ? 'English & Hindi' : job.languages} />}
+          {job.openings != null && <InfoRow icon={<Users className="h-4 w-4" />} label="Openings" value={`${job.openings}`} />}
         </div>
 
         <p className="mt-2 text-xs text-slate-400">Posted {formatRelative(job.created_at)}</p>
@@ -96,6 +94,30 @@ export default function JobDetailPage() {
       <div className="rounded-xl border border-slate-200 bg-white p-5">
         <h2 className="font-semibold text-slate-900">Job description</h2>
         <p className="mt-2 whitespace-pre-wrap text-sm text-slate-700">{job.job_description}</p>
+      </div>
+
+      {/* Apply buttons */}
+      <div className="flex gap-3">
+        {waUrl && (
+          <a
+            href={waUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-6 py-3 font-bold text-white transition-colors hover:bg-emerald-700"
+          >
+            <MessageCircle className="h-5 w-5" />
+            Apply on WhatsApp
+          </a>
+        )}
+        {job.hr_phone && (
+          <a
+            href={`tel:${job.hr_phone}`}
+            className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 px-6 py-3 font-medium text-slate-700 transition-colors hover:bg-slate-50"
+          >
+            <Phone className="h-5 w-5" />
+            Call HR
+          </a>
+        )}
       </div>
     </div>
   );

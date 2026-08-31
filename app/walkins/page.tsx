@@ -1,24 +1,27 @@
 'use client';
-// Public walk-in listing — shows ONLY approved walk-ins, nearest upcoming first.
 import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { getSupabase } from '@/lib/supabase-client';
-import { useAuth } from '@/lib/auth-context';
-import { Walkin, JobCategory, BPO_CATEGORIES, FINANCE_CATEGORIES } from '@/lib/types';
-import { CategoryBadge, FilterTab } from '@/lib/categories';
-import { ReportButton } from '@/components/report-button';
+import { Walkin, NCR_CITIES, EDUCATION_OPTIONS } from '@/lib/types';
+import { WalkinCard } from '@/components/walkin-card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { MapPin, Calendar, Clock, User, Inbox } from 'lucide-react';
-import { formatDate } from '@/lib/format';
+import { Inbox, MessageCircle } from 'lucide-react';
+
+const CATEGORIES = ['Voice', 'Non-Voice', 'Semi-Voice'] as const;
+const SHIFTS = ['Day', 'Night'] as const;
 
 function WalkinsPageInner() {
   const supabase = getSupabase();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { user } = useAuth();
 
-  const activeCategory = (searchParams.get('category') as JobCategory | 'all') || 'all';
+  const city = searchParams.get('city') || 'all';
+  const dateFilter = searchParams.get('date') || 'week';
+  const category = searchParams.get('category') || 'all';
+  const shift = searchParams.get('shift') || 'all';
+  const cab = searchParams.get('cab') || 'all';
+  const education = searchParams.get('education') || 'all';
 
   const [walkins, setWalkins] = useState<Walkin[]>([]);
   const [loading, setLoading] = useState(true);
@@ -26,98 +29,146 @@ function WalkinsPageInner() {
   useEffect(() => {
     (async () => {
       const today = new Date().toISOString().slice(0, 10);
-      // Fetch approved walk-ins on or after today, sorted by date ascending.
-      const { data, error } = await supabase
+      const { data } = await supabase
         .from('walkins')
         .select('*')
-        .eq('status', 'approved')
+        .in('status', ['live', 'approved'])
         .gte('walkin_date', today)
         .order('walkin_date', { ascending: true });
-      if (error) {
-        setLoading(false);
-        return;
-      }
       setWalkins((data as Walkin[]) ?? []);
       setLoading(false);
     })();
   }, [supabase]);
 
-  const filtered = useMemo(() => {
-    if (activeCategory === 'all') return walkins;
-    return walkins.filter((w) => w.category === activeCategory);
-  }, [walkins, activeCategory]);
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const tomorrowStr = tomorrow.toISOString().slice(0, 10);
+  const weekEnd = new Date();
+  weekEnd.setDate(weekEnd.getDate() + 7);
+  const weekEndStr = weekEnd.toISOString().slice(0, 10);
 
-  function setCategory(c: JobCategory | 'all') {
-    const qs = c === 'all' ? '' : `?category=${encodeURIComponent(c)}`;
-    router.push(`/walkins${qs}`);
+  const filtered = useMemo(() => {
+    return walkins.filter((w) => {
+      if (city !== 'all' && w.city !== city) return false;
+      if (category !== 'all' && w.category !== category) return false;
+      if (shift !== 'all' && w.shift !== shift) return false;
+      if (cab === 'yes' && !w.cab) return false;
+      if (education !== 'all' && w.education !== education) return false;
+      if (dateFilter === 'today' && w.walkin_date !== todayStr) return false;
+      if (dateFilter === 'tomorrow' && w.walkin_date !== tomorrowStr) return false;
+      if (dateFilter === 'week' && w.walkin_date > weekEndStr) return false;
+      return true;
+    });
+  }, [walkins, city, category, shift, cab, education, dateFilter, todayStr, tomorrowStr, weekEndStr]);
+
+  function updateFilter(key: string, value: string) {
+    const params = new URLSearchParams(searchParams.toString());
+    if (value === 'all') params.delete(key);
+    else params.set(key, value);
+    router.push(`/walkins?${params.toString()}`);
   }
 
-  const tabs: { group: string; items: { label: string; value: JobCategory | 'all' }[] }[] = [
-    { group: 'All', items: [{ label: 'All', value: 'all' }] },
-    { group: 'BPO Roles', items: BPO_CATEGORIES.map((c) => ({ label: c, value: c })) },
-    { group: 'Finance / BFSI Roles', items: FINANCE_CATEGORIES.map((c) => ({ label: c, value: c })) },
-  ];
+  function chip(label: string, key: string, value: string) {
+    const active = (searchParams.get(key) || 'all') === value || (value === 'all' && !searchParams.get(key));
+    return (
+      <button
+        key={`${key}-${value}`}
+        type="button"
+        onClick={() => updateFilter(key, value)}
+        className={`rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors whitespace-nowrap ${
+          active ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+        }`}
+      >
+        {label}
+      </button>
+    );
+  }
 
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-slate-900">Walk-in Interviews</h1>
-        <span className="text-sm text-slate-500">{filtered.length} upcoming</span>
+        <span className="text-sm text-slate-500">{filtered.length} listing{filtered.length !== 1 ? 's' : ''}</span>
       </div>
 
+      {/* Filters */}
       <div className="space-y-3">
-        {tabs.map((section) => (
-          <div key={section.group} className="space-y-1.5">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{section.group}</p>
+        <div className="space-y-1.5">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Date</p>
+          <div className="flex flex-wrap gap-2">
+            {chip('Today', 'date', 'today')}
+            {chip('Tomorrow', 'date', 'tomorrow')}
+            {chip('This week', 'date', 'week')}
+          </div>
+        </div>
+
+        <div className="space-y-1.5">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">City</p>
+          <div className="flex flex-wrap gap-2">
+            {chip('All NCR', 'city', 'all')}
+            {NCR_CITIES.map((c) => chip(c, 'city', c))}
+          </div>
+        </div>
+
+        <div className="space-y-1.5">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Category</p>
+          <div className="flex flex-wrap gap-2">
+            {chip('All', 'category', 'all')}
+            {CATEGORIES.map((c) => chip(c, 'category', c))}
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-4">
+          <div className="space-y-1.5">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Shift</p>
             <div className="flex flex-wrap gap-2">
-              {section.items.map((t) => (
-                <FilterTab key={t.value} label={t.label} active={activeCategory === t.value} onClick={() => setCategory(t.value)} />
-              ))}
+              {chip('All', 'shift', 'all')}
+              {SHIFTS.map((s) => chip(s, 'shift', s))}
             </div>
           </div>
-        ))}
+          <div className="space-y-1.5">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Cab</p>
+            <div className="flex flex-wrap gap-2">
+              {chip('All', 'cab', 'all')}
+              {chip('Yes', 'cab', 'yes')}
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Education</p>
+            <div className="flex flex-wrap gap-2">
+              {chip('All', 'education', 'all')}
+              {EDUCATION_OPTIONS.map((e) => chip(e, 'education', e))}
+            </div>
+          </div>
+        </div>
       </div>
 
+      {/* Cards */}
       {loading ? (
         <div className="space-y-3">
-          {[1, 2, 3].map((i) => <Skeleton key={i} className="h-36 w-full rounded-xl" />)}
+          {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-40 w-full rounded-xl" />)}
         </div>
       ) : filtered.length === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-slate-300 py-16 text-center">
           <Inbox className="h-8 w-8 text-slate-300" />
-          <p className="mt-2 text-sm text-slate-500">No upcoming walk-ins in this category.</p>
+          <p className="mt-2 text-sm text-slate-500">
+            No walk-ins for this filter — try All or Noida
+          </p>
+          <a
+            href={`https://wa.me/?text=${encodeURIComponent('Check out NCR Walk-in for BPO walk-ins in Delhi NCR: https://ncrwalkin.example')}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-4 inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
+          >
+            <MessageCircle className="h-4 w-4" />
+            Share on WhatsApp
+          </a>
         </div>
       ) : (
         <div className="grid gap-3 sm:grid-cols-2">
           {filtered.map((w) => (
-            <div key={w.id} className="group rounded-xl border border-slate-200 bg-white p-4 transition-shadow hover:shadow-md">
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0 flex-1">
-                  <h3 className="truncate font-semibold text-slate-900">{w.role_title}</h3>
-                  <p className="truncate text-sm text-slate-600">{w.company_name}</p>
-                </div>
-                {user && <ReportButton walkinId={w.id} />}
-              </div>
-
-              <div className="mt-3 space-y-2">
-                <CategoryBadge category={w.category} />
-                <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-slate-600">
-                  <span className="inline-flex items-center gap-1 font-medium text-slate-800">
-                    <Calendar className="h-3.5 w-3.5 text-blue-600" />{formatDate(w.walkin_date)}
-                  </span>
-                  <span className="inline-flex items-center gap-1"><Clock className="h-3.5 w-3.5 text-slate-400" />{w.walkin_time}</span>
-                </div>
-                <p className="inline-flex items-start gap-1 text-sm text-slate-600">
-                  <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" />
-                  <span>{w.location_address}</span>
-                </p>
-                {w.contact_person && (
-                  <p className="inline-flex items-center gap-1 text-xs text-slate-500">
-                    <User className="h-3 w-3" />{w.contact_person}
-                  </p>
-                )}
-              </div>
-            </div>
+            <WalkinCard key={w.id} walkin={w} />
           ))}
         </div>
       )}
