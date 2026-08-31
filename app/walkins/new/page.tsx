@@ -10,9 +10,9 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from 'sonner';
-import { Loader2, Eye, CheckCircle2, MessageCircle } from 'lucide-react';
-import { NCR_CITIES, EDUCATION_OPTIONS, SHIFT_OPTIONS, LANGUAGE_OPTIONS } from '@/lib/types';
-import { formatSalaryFull, formatWalkinDate } from '@/lib/format';
+import { Loader2, Eye, CheckCircle2 } from 'lucide-react';
+import { NCR_CITIES, EDUCATION_OPTIONS, SHIFT_OPTIONS, LANGUAGE_OPTIONS, formatSalaryFull } from '@/lib/types';
+import { formatWalkinDate } from '@/lib/format';
 
 const RAZORPAY_KEY = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID;
 const PRICE = 499;
@@ -59,8 +59,16 @@ function PostWalkinInner() {
     if (!form.area.trim()) return 'Area is required (e.g. Sector 62).';
     if (!form.addressLine.trim()) return 'Address is required.';
     if (!form.walkin_date) return 'Walk-in date is required.';
+    // Local date string (YYYY-MM-DD) so we don't get tripped up by UTC offsets.
+    const localToday = new Date();
+    const todayStr = `${localToday.getFullYear()}-${String(localToday.getMonth() + 1).padStart(2, '0')}-${String(localToday.getDate()).padStart(2, '0')}`;
+    if (form.walkin_date < todayStr) return 'Walk-in date cannot be in the past.';
     if (!form.walkin_start_time.trim()) return 'Start time is required.';
     if (!form.salary_min || !form.salary_max) return 'Salary range is required.';
+    const salMin = parseInt(form.salary_min);
+    const salMax = parseInt(form.salary_max);
+    if (isNaN(salMin) || isNaN(salMax) || salMin <= 0 || salMax <= 0) return 'Salary values must be positive numbers.';
+    if (salMin > salMax) return 'Salary min cannot be greater than salary max.';
     if (!form.education) return 'Please choose minimum education.';
     if (!form.shift) return 'Please choose shift type.';
     if (!form.languages) return 'Please choose language requirement.';
@@ -82,7 +90,7 @@ function PostWalkinInner() {
       area: form.area.trim(),
       location_address: form.addressLine.trim(),
       walkin_date: form.walkin_date,
-      walkin_time: `${form.walkin_start_time.trim()} - ${form.walkin_end_time.trim()}`.trim(),
+      walkin_time: [form.walkin_start_time.trim(), form.walkin_end_time.trim()].filter(Boolean).join(' - '),
       salary_min: parseInt(form.salary_min) || null,
       salary_max: parseInt(form.salary_max) || null,
       education: form.education || null,
@@ -175,7 +183,7 @@ function PostWalkinInner() {
             ))}
           </div>
           <p className="mt-3 text-sm text-slate-600">
-            {formatWalkinDate(form.walkin_date)} {form.walkin_start_time} - {form.walkin_end_time} | {form.city}, {form.area}
+            {formatWalkinDate(form.walkin_date)} {[form.walkin_start_time, form.walkin_end_time].filter(Boolean).join(' - ')} | {form.city}, {form.area}
           </p>
           <p className="mt-2 text-sm text-slate-700">{form.description}</p>
         </div>
