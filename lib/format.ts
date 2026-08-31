@@ -1,5 +1,15 @@
 // Small formatting helpers used across cards.
 
+// Local YYYY-MM-DD for a Date (defaults to now). Uses local calendar fields
+// rather than toISOString() (which is UTC) so IST users browsing between
+// midnight and 05:30 don't get yesterday's date.
+export function localISODate(d: Date = new Date()): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 // Format an ISO timestamp as a relative "x ago" string.
 export function formatRelative(iso: string): string {
   const then = new Date(iso).getTime();

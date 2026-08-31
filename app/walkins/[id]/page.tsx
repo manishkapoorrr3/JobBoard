@@ -26,12 +26,16 @@ export default function WalkinDetailPage() {
         .select('*')
         .eq('id', id)
         .maybeSingle();
-      if (data && (data.status === 'live' || data.status === 'approved' || data.status === 'expired')) {
+      // Public visitors see live/approved/expired listings; the owner recruiter
+      // can also view their own draft/pending/other listings (allowed by RLS).
+      const publicStatuses = ['live', 'approved', 'expired'];
+      const isOwner = data && user?.id && data.posted_by_user_id === user.id;
+      if (data && (publicStatuses.includes(data.status) || isOwner)) {
         setWalkin(data as Walkin);
       }
       setLoading(false);
     })();
-  }, [supabase, id]);
+  }, [supabase, id, user]);
 
   if (loading) return <Skeleton className="h-64 w-full rounded-xl" />;
 
@@ -54,7 +58,9 @@ export default function WalkinDetailPage() {
     : null;
   const mapUrl = `https://maps.google.com/?q=${encodeURIComponent(fullAddress)}`;
   const dateLabel = formatWalkinDate(walkin.walkin_date);
-  const isExpired = walkin.status === 'expired';
+  const isExpired = walkin.status === 'expired' || (!!walkin.paid_until && new Date(walkin.paid_until) < new Date());
+  const isDraft = walkin.status === 'draft' || walkin.status === 'pending';
+  const isOwnerView = user?.id === walkin.posted_by_user_id;
 
   return (
     <div className="mx-auto max-w-2xl space-y-5">
@@ -127,6 +133,13 @@ export default function WalkinDetailPage() {
         </a>
         <p className="mt-1 text-sm text-slate-600">{fullAddress}</p>
       </div>
+
+      {isDraft && isOwnerView && (
+        <div className="rounded-xl bg-blue-50 p-4 text-center text-sm text-blue-800">
+          This listing is a <strong>{walkin.status}</strong> draft and is not visible to candidates yet.
+          Go to <Link href="/dashboard" className="font-semibold underline">My Listings</Link> to publish it.
+        </div>
+      )}
 
       {isExpired && (
         <div className="rounded-xl bg-amber-50 p-4 text-center text-sm text-amber-800">
