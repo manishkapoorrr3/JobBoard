@@ -110,37 +110,97 @@ function PostWalkinInner() {
     setShowPreview(true);
   }
 
+  // Load the Razorpay checkout.js script once.
+  function loadCheckoutScript(): Promise<boolean> {
+    return new Promise((resolve) => {
+      if ((window as any).Razorpay) return resolve(true);
+      const script = document.createElement('script');
+      script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+      script.onload = () => resolve(true);
+      script.onerror = () => resolve(false);
+      document.body.appendChild(script);
+    });
+  }
+
   async function handlePay() {
     if (!createdId) return;
     setPaying(true);
 
-    if (RAZORPAY_KEY) {
-      // Load Razorpay checkout script
-      const script = document.createElement('script');
-      script.src = 'https://checkout.razorpay.com/v1/checkout.js';
-      script.onload = () => {
-        const rzp = new (window as any).Razorpay({
-          key: RAZORPAY_KEY,
-          amount: PRICE * 100,
-          currency: 'INR',
-          name: 'NCR Walk-in',
-          description: 'Walk-in listing — 7 days',
-          handler: async () => {
-            await activateListing();
-          },
-          modal: { ondismiss: () => setPaying(false) },
-        });
-        rzp.open();
-      };
-      script.onerror = () => {
-        toast.error('Could not load payment gateway. Try Demo pay.');
-        setPaying(false);
-      };
-      document.body.appendChild(script);
-    } else {
-      // Demo pay — no real payment, just activate
-      await activateListing();
+    // Ask the server to create a Razorpay order. When Razorpay is not
+    // configured (or the call fails), the server returns { demo: true } and we
+    // fall back to the existing client-side demo activation.
+    let order: {
+      demo?: boolean;
+      key_id?: string;
+      order_id?: string;
+      amount?: number;
+      currency?: string;
+    };
+    try {
+      const res = await fetch('/api/razorpay/order', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ walkin_id: createdId }),
+      });
+      order = await res.json();
+    } catch {
+      order = { demo: true };
     }
+
+    if (order.demo || !order.order_id || !order.key_id) {
+      await activateListing();
+      return;
+    }
+
+    const loaded = await loadCheckoutScript();
+    if (!loaded) {
+      toast.error('Could not load the payment gateway. Please try again.');
+      setPaying(false);
+      return;
+    }
+
+    const rzp = new (window as any).Razorpay({
+      key: order.key_id,
+      order_id: order.order_id,
+      amount: order.amount ?? PRICE * 100,
+      currency: order.currency ?? 'INR',
+      name: 'NCR Walk-in',
+      description: 'Walk-in listing — 7 days',
+      handler: async (response: {
+        razorpay_order_id: string;
+        razorpay_payment_id: string;
+        razorpay_signature: string;
+      }) => {
+        try {
+          const vRes = await fetch('/api/razorpay/verify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              razorpay_order_id: response.razorpay_order_id,
+              razorpay_payment_id: response.razorpay_payment_id,
+              razorpay_signature: response.razorpay_signature,
+              walkin_id: createdId,
+            }),
+          });
+          const result = await vRes.json();
+          if (vRes.ok && result.ok) {
+            setPaying(false);
+            toast.success('Your walk-in is live!');
+            router.push('/walkins');
+          } else if (result.activateClientSide) {
+            await activateListing();
+          } else {
+            setPaying(false);
+            toast.error(result.error || 'Payment verification failed. Please contact support.');
+          }
+        } catch {
+          setPaying(false);
+          toast.error('Payment verification failed. Please contact support.');
+        }
+      },
+      modal: { ondismiss: () => setPaying(false) },
+    });
+    rzp.open();
   }
 
   async function activateListing() {
