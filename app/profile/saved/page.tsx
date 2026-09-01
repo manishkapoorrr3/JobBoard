@@ -22,8 +22,8 @@ function SavedJobsInner() {
   useEffect(() => {
     if (!user) return;
     (async () => {
-      // Join saved_jobs -> jobs and only keep approved ones (a job may have
-      // been un-approved or deleted after the user saved it).
+      // Join saved_jobs -> jobs and only keep live or approved ones (a job may
+      // have been un-approved, paused, or deleted after the user saved it).
       const { data, error } = await supabase
         .from('saved_jobs')
         .select('job_id, jobs(*)')
@@ -35,7 +35,7 @@ function SavedJobsInner() {
       }
       const approved = (data ?? [])
         .map((row) => row.jobs as unknown as Job)
-        .filter((j): j is Job => !!j && j.status === 'approved');
+        .filter((j): j is Job => !!j && (j.status === 'live' || j.status === 'approved'));
       setJobs(approved);
       setLoading(false);
     })();

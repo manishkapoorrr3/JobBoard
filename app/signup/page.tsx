@@ -35,7 +35,7 @@ export default function SignupPage() {
 
     if (accountType === 'job_seeker') {
       if (!/^\d{10}$/.test(phone.replace(/\D/g, ''))) return toast.error('Please enter a valid 10-digit Indian mobile number.');
-      if (!email.trim() && password.length < 6) return toast.error('Password must be at least 6 characters.');
+      if (password.length < 6) return toast.error('Password must be at least 6 characters.');
       if (email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) return toast.error('Please enter a valid email address.');
     } else {
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) return toast.error('Please enter a valid email address.');
