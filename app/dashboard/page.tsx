@@ -7,7 +7,7 @@ import { Walkin, formatSalary } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 import { toast } from 'sonner';
-import { Loader2, RefreshCw, ExternalLink, Calendar } from 'lucide-react';
+import { Loader2, RefreshCw, ExternalLink, Calendar, Pencil } from 'lucide-react';
 import { formatWalkinDate } from '@/lib/format';
 
 const PRICE = 499;
@@ -188,6 +188,11 @@ function DashboardInner() {
                   <Link href={`/walkins/${w.id}`}>
                     <Button size="sm" variant="outline">
                       <ExternalLink className="mr-1.5 h-3.5 w-3.5" />View
+                    </Button>
+                  </Link>
+                  <Link href={`/walkins/${w.id}/edit`}>
+                    <Button size="sm" variant="outline">
+                      <Pencil className="mr-1.5 h-3.5 w-3.5" />Edit
                     </Button>
                   </Link>
                   {isExpired && (
