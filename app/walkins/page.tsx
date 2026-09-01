@@ -1,15 +1,14 @@
 'use client';
 import { Suspense, useEffect, useMemo, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import Link from 'next/link';
 import { getSupabase } from '@/lib/supabase-client';
-import { Walkin, NCR_CITIES, EDUCATION_OPTIONS } from '@/lib/types';
+import { Walkin, NCR_CITIES, EDUCATION_OPTIONS, SHIFT_OPTIONS } from '@/lib/types';
+import { localISODate } from '@/lib/format';
 import { WalkinCard } from '@/components/walkin-card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Inbox, MessageCircle } from 'lucide-react';
 
 const CATEGORIES = ['Voice', 'Non-Voice', 'Semi-Voice'] as const;
-const SHIFTS = ['Day', 'Night'] as const;
 
 function WalkinsPageInner() {
   const supabase = getSupabase();
@@ -25,10 +24,15 @@ function WalkinsPageInner() {
 
   const [walkins, setWalkins] = useState<Walkin[]>([]);
   const [loading, setLoading] = useState(true);
+  const [shareUrl, setShareUrl] = useState('');
+
+  useEffect(() => {
+    setShareUrl(window.location.origin + '/walkins');
+  }, []);
 
   useEffect(() => {
     (async () => {
-      const today = new Date().toISOString().slice(0, 10);
+      const today = localISODate();
       const { data } = await supabase
         .from('walkins')
         .select('*')
@@ -40,13 +44,13 @@ function WalkinsPageInner() {
     })();
   }, [supabase]);
 
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = localISODate();
   const tomorrow = new Date();
   tomorrow.setDate(tomorrow.getDate() + 1);
-  const tomorrowStr = tomorrow.toISOString().slice(0, 10);
+  const tomorrowStr = localISODate(tomorrow);
   const weekEnd = new Date();
   weekEnd.setDate(weekEnd.getDate() + 7);
-  const weekEndStr = weekEnd.toISOString().slice(0, 10);
+  const weekEndStr = localISODate(weekEnd);
 
   const filtered = useMemo(() => {
     return walkins.filter((w) => {
@@ -124,7 +128,7 @@ function WalkinsPageInner() {
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Shift</p>
             <div className="flex flex-wrap gap-2">
               {chip('All', 'shift', 'all')}
-              {SHIFTS.map((s) => chip(s, 'shift', s))}
+              {SHIFT_OPTIONS.map((s) => chip(s, 'shift', s))}
             </div>
           </div>
           <div className="space-y-1.5">
@@ -156,7 +160,7 @@ function WalkinsPageInner() {
             No walk-ins for this filter — try All or Noida
           </p>
           <a
-            href={`https://wa.me/?text=${encodeURIComponent('Check out NCR Walk-in for BPO walk-ins in Delhi NCR: https://ncrwalkin.example')}`}
+            href={`https://wa.me/?text=${encodeURIComponent(`Check out NCR Walk-in for BPO walk-ins in Delhi NCR: ${shareUrl}`)}`}
             target="_blank"
             rel="noopener noreferrer"
             className="mt-4 inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"

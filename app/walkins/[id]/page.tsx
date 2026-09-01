@@ -26,12 +26,17 @@ export default function WalkinDetailPage() {
         .select('*')
         .eq('id', id)
         .maybeSingle();
-      if (data && (data.status === 'live' || data.status === 'approved' || data.status === 'expired')) {
-        setWalkin(data as Walkin);
+      if (data) {
+        const d = data as Walkin;
+        const isPublicStatus = d.status === 'live' || d.status === 'approved' || d.status === 'expired';
+        const isOwner = d.posted_by_user_id === user?.id;
+        if (isPublicStatus || isOwner) {
+          setWalkin(d);
+        }
       }
       setLoading(false);
     })();
-  }, [supabase, id]);
+  }, [supabase, id, user]);
 
   if (loading) return <Skeleton className="h-64 w-full rounded-xl" />;
 
@@ -54,13 +59,23 @@ export default function WalkinDetailPage() {
     : null;
   const mapUrl = `https://maps.google.com/?q=${encodeURIComponent(fullAddress)}`;
   const dateLabel = formatWalkinDate(walkin.walkin_date);
-  const isExpired = walkin.status === 'expired';
+  const paidUntilPast = walkin.paid_until ? new Date(walkin.paid_until).getTime() < Date.now() : false;
+  const isExpired = walkin.status === 'expired' || paidUntilPast;
 
   return (
     <div className="mx-auto max-w-2xl space-y-5">
       <Link href="/walkins" className="inline-flex items-center text-sm text-slate-500 hover:text-slate-800">
         <ArrowLeft className="mr-1 h-4 w-4" />All walk-ins
       </Link>
+
+      {(walkin.status === 'draft' || walkin.status === 'pending') && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+          <p>
+            This listing is <span className="font-semibold">{walkin.status}</span> and is only visible to you.
+            {' '}<Link href="/dashboard" className="font-semibold underline hover:no-underline">Go to your dashboard</Link>
+          </p>
+        </div>
+      )}
 
       <div className="rounded-xl border border-slate-200 bg-white p-5">
         <div className="flex items-start justify-between gap-3">
