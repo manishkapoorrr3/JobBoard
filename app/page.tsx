@@ -7,8 +7,8 @@ import { Button } from '@/components/ui/button';
 import { Walkin } from '@/lib/types';
 import { WalkinCard } from '@/components/walkin-card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Footprints, Calendar, MapPin, ShieldCheck, Phone, Briefcase } from 'lucide-react';
-import { isToday, isThisWeek } from '@/lib/format';
+import { Footprints, Calendar, ShieldCheck, Briefcase } from 'lucide-react';
+import { isToday, isThisWeek, localISODate } from '@/lib/format';
 
 export default function Home() {
   const supabase = getSupabase();
@@ -95,7 +95,7 @@ export default function Home() {
 
       {/* Today strip */}
       <section className="space-y-3">
-        <h2 className="text-xl font-bold text-slate-900"> happening today</h2>
+        <h2 className="text-xl font-bold text-slate-900">Walk-ins happening today</h2>
         {loading ? (
           <div className="space-y-3">
             {[1, 2, 3].map((i) => <Skeleton key={i} className="h-36 w-full rounded-xl" />)}
