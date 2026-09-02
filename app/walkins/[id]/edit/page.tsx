@@ -1,7 +1,9 @@
 'use client';
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect, useState } from 'react';
+import Link from 'next/link';
+import { useParams, useRouter } from 'next/navigation';
 import { getSupabase } from '@/lib/supabase-client';
+import { useAuth } from '@/lib/auth-context';
 import { RequireRecruiter } from '@/lib/auth-guards';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,20 +12,20 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from 'sonner';
-import { Loader2, Eye, CheckCircle2 } from 'lucide-react';
-import { NCR_CITIES, EDUCATION_OPTIONS, SHIFT_OPTIONS, LANGUAGE_OPTIONS, formatSalaryFull } from '@/lib/types';
-import { formatWalkinDate, localISODate } from '@/lib/format';
+import { Loader2, ArrowLeft, Inbox, Save } from 'lucide-react';
+import { NCR_CITIES, EDUCATION_OPTIONS, SHIFT_OPTIONS, LANGUAGE_OPTIONS, Walkin } from '@/lib/types';
+import { localISODate } from '@/lib/format';
 
-const RAZORPAY_KEY = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID;
-const PRICE = 499;
-
-function PostWalkinInner() {
+function EditWalkinInner() {
   const supabase = getSupabase();
   const router = useRouter();
+  const params = useParams();
+  const id = params.id as string;
+  const { user } = useAuth();
+
+  const [loading, setLoading] = useState(true);
+  const [notFound, setNotFound] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [showPreview, setShowPreview] = useState(false);
-  const [paying, setPaying] = useState(false);
-  const [createdId, setCreatedId] = useState<string | null>(null);
 
   const [form, setForm] = useState({
     company_name: '',
@@ -51,6 +53,45 @@ function PostWalkinInner() {
     setForm((f) => ({ ...f, [key]: value }));
   }
 
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase
+        .from('walkins')
+        .select('*')
+        .eq('id', id)
+        .maybeSingle();
+      const walkin = data as Walkin | null;
+      if (!walkin || walkin.posted_by_user_id !== user?.id) {
+        setNotFound(true);
+        setLoading(false);
+        return;
+      }
+      const [start, end] = (walkin.walkin_time || '').split(' - ');
+      setForm({
+        company_name: walkin.company_name || '',
+        role_title: walkin.role_title || '',
+        category: walkin.category || '',
+        city: walkin.city || '',
+        area: walkin.area || '',
+        addressLine: walkin.location_address || '',
+        walkin_date: walkin.walkin_date || '',
+        walkin_start_time: start || '',
+        walkin_end_time: end || '',
+        salary_min: walkin.salary_min != null ? String(walkin.salary_min) : '',
+        salary_max: walkin.salary_max != null ? String(walkin.salary_max) : '',
+        education: walkin.education || '',
+        shift: walkin.shift || '',
+        cab: !!walkin.cab,
+        languages: walkin.languages || '',
+        whatsapp_number: walkin.whatsapp_number || '',
+        hr_phone: walkin.hr_phone || '',
+        openings: walkin.openings != null ? String(walkin.openings) : '',
+        description: walkin.description || '',
+      });
+      setLoading(false);
+    })();
+  }, [supabase, id, user]);
+
   function validate(): string | null {
     if (!form.company_name.trim()) return 'Company name is required.';
     if (!form.role_title.trim()) return 'Role title is required.';
@@ -76,211 +117,73 @@ function PostWalkinInner() {
     return null;
   }
 
-  async function handleSaveDraft() {
+  async function handleSave() {
     const err = validate();
     if (err) return toast.error(err);
 
     setSaving(true);
-    const { data, error } = await supabase.from('walkins').insert({
-      company_name: form.company_name.trim(),
-      role_title: form.role_title.trim(),
-      category: form.category,
-      city: form.city,
-      area: form.area.trim(),
-      location_address: form.addressLine.trim(),
-      walkin_date: form.walkin_date,
-      walkin_time: [form.walkin_start_time.trim(), form.walkin_end_time.trim()].filter(Boolean).join(' - '),
-      salary_min: parseInt(form.salary_min) || null,
-      salary_max: parseInt(form.salary_max) || null,
-      education: form.education || null,
-      shift: form.shift || null,
-      cab: form.cab,
-      languages: form.languages || null,
-      whatsapp_number: form.whatsapp_number.replace(/\D/g, ''),
-      hr_phone: form.hr_phone.replace(/\D/g, '') || null,
-      openings: parseInt(form.openings) || null,
-      description: form.description.trim(),
-      contact_person: null,
-      status: 'draft',
-    }).select('id').single();
-    setSaving(false);
-
-    if (error) return toast.error('Could not save your listing. Please try again.');
-    setCreatedId(data.id);
-    setShowPreview(true);
-  }
-
-  // Load the Razorpay checkout.js script once.
-  function loadCheckoutScript(): Promise<boolean> {
-    return new Promise((resolve) => {
-      if ((window as any).Razorpay) return resolve(true);
-      const script = document.createElement('script');
-      script.src = 'https://checkout.razorpay.com/v1/checkout.js';
-      script.onload = () => resolve(true);
-      script.onerror = () => resolve(false);
-      document.body.appendChild(script);
-    });
-  }
-
-  async function handlePay() {
-    if (!createdId) return;
-    setPaying(true);
-
-    // Ask the server to create a Razorpay order. When Razorpay is not
-    // configured (or the call fails), the server returns { demo: true } and we
-    // fall back to the existing client-side demo activation.
-    let order: {
-      demo?: boolean;
-      key_id?: string;
-      order_id?: string;
-      amount?: number;
-      currency?: string;
-    };
-    try {
-      const res = await fetch('/api/razorpay/order', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ walkin_id: createdId }),
-      });
-      order = await res.json();
-    } catch {
-      order = { demo: true };
-    }
-
-    if (order.demo || !order.order_id || !order.key_id) {
-      await activateListing();
-      return;
-    }
-
-    const loaded = await loadCheckoutScript();
-    if (!loaded) {
-      toast.error('Could not load the payment gateway. Please try again.');
-      setPaying(false);
-      return;
-    }
-
-    const rzp = new (window as any).Razorpay({
-      key: order.key_id,
-      order_id: order.order_id,
-      amount: order.amount ?? PRICE * 100,
-      currency: order.currency ?? 'INR',
-      name: 'NCR Walk-in',
-      description: 'Walk-in listing — 7 days',
-      handler: async (response: {
-        razorpay_order_id: string;
-        razorpay_payment_id: string;
-        razorpay_signature: string;
-      }) => {
-        try {
-          const vRes = await fetch('/api/razorpay/verify', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              razorpay_order_id: response.razorpay_order_id,
-              razorpay_payment_id: response.razorpay_payment_id,
-              razorpay_signature: response.razorpay_signature,
-              walkin_id: createdId,
-            }),
-          });
-          const result = await vRes.json();
-          if (vRes.ok && result.ok) {
-            setPaying(false);
-            toast.success('Your walk-in is live!');
-            router.push('/walkins');
-          } else if (result.activateClientSide) {
-            await activateListing();
-          } else {
-            setPaying(false);
-            toast.error(result.error || 'Payment verification failed. Please contact support.');
-          }
-        } catch {
-          setPaying(false);
-          toast.error('Payment verification failed. Please contact support.');
-        }
-      },
-      modal: { ondismiss: () => setPaying(false) },
-    });
-    rzp.open();
-  }
-
-  async function activateListing() {
-    if (!createdId) return;
-    const paidUntil = new Date();
-    paidUntil.setDate(paidUntil.getDate() + 7);
-
     const { error } = await supabase
       .from('walkins')
-      .update({ status: 'live', paid_until: paidUntil.toISOString() })
-      .eq('id', createdId);
+      .update({
+        company_name: form.company_name.trim(),
+        role_title: form.role_title.trim(),
+        category: form.category,
+        city: form.city,
+        area: form.area.trim(),
+        location_address: form.addressLine.trim(),
+        walkin_date: form.walkin_date,
+        walkin_time: [form.walkin_start_time.trim(), form.walkin_end_time.trim()].filter(Boolean).join(' - '),
+        salary_min: parseInt(form.salary_min) || null,
+        salary_max: parseInt(form.salary_max) || null,
+        education: form.education || null,
+        shift: form.shift || null,
+        cab: form.cab,
+        languages: form.languages || null,
+        whatsapp_number: form.whatsapp_number.replace(/\D/g, ''),
+        hr_phone: form.hr_phone.replace(/\D/g, '') || null,
+        openings: parseInt(form.openings) || null,
+        description: form.description.trim(),
+      })
+      .eq('id', id);
+    setSaving(false);
 
-    setPaying(false);
-    if (error) return toast.error('Payment received but listing activation failed. Please contact support.');
+    if (error) return toast.error('Could not update your listing. Please try again.');
 
-    toast.success('Your walk-in is live!');
-    router.push('/walkins');
+    toast.success('Listing updated!');
+    router.push('/dashboard');
   }
 
-  if (showPreview && createdId) {
+  if (loading) {
     return (
-      <div className="mx-auto max-w-2xl space-y-5">
-        <div className="rounded-xl border border-slate-200 bg-white p-5">
-          <div className="flex items-center gap-2 text-emerald-600">
-            <CheckCircle2 className="h-5 w-5" />
-            <span className="font-semibold">Listing saved — preview</span>
-          </div>
-          <p className="mt-1 text-sm text-slate-600">Review your listing below, then pay Rs {PRICE} to make it live for 7 days.</p>
-        </div>
+      <div className="flex justify-center py-20">
+        <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
+      </div>
+    );
+  }
 
-        {/* Preview card */}
-        <div className="rounded-xl border border-slate-200 bg-white p-4">
-          <h3 className="font-semibold text-slate-900">{form.role_title}</h3>
-          <p className="text-sm text-slate-600">{form.company_name}</p>
-          <p className="mt-2 text-lg font-bold text-emerald-700">{formatSalaryFull(parseInt(form.salary_min) || null, parseInt(form.salary_max) || null)}</p>
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {[form.category, form.shift, form.cab && 'Cab', form.education].filter(Boolean).map((c) => (
-              <span key={c as string} className="rounded bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">{c as string}</span>
-            ))}
-          </div>
-          <p className="mt-3 text-sm text-slate-600">
-            {formatWalkinDate(form.walkin_date)} {[form.walkin_start_time, form.walkin_end_time].filter(Boolean).join(' - ')} | {form.city}, {form.area}
-          </p>
-          <p className="mt-2 text-sm text-slate-700">{form.description}</p>
-        </div>
-
-        {/* Payment */}
-        <div className="rounded-xl border border-slate-200 bg-white p-5">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="font-semibold text-slate-900">Pay Rs {PRICE}</p>
-              <p className="text-sm text-slate-600">Listing goes live instantly. Visible for 7 days.</p>
-            </div>
-            <Button onClick={handlePay} disabled={paying} className="bg-emerald-600 text-white hover:bg-emerald-700">
-              {paying && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {RAZORPAY_KEY ? `Pay Rs ${PRICE}` : `Demo pay Rs ${PRICE}`}
-            </Button>
-          </div>
-          {!RAZORPAY_KEY && (
-            <p className="mt-2 text-xs text-amber-600">
-              Demo mode: no real payment will be charged. Set NEXT_PUBLIC_RAZORPAY_KEY_ID to enable Razorpay Checkout.
-            </p>
-          )}
-        </div>
-
-        <Button variant="outline" onClick={() => setShowPreview(false)} className="w-full">
-          <Eye className="mr-2 h-4 w-4" />Edit listing
-        </Button>
+  if (notFound) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-center">
+        <Inbox className="h-8 w-8 text-slate-300" />
+        <p className="mt-2 text-slate-600">This walk-in doesn&apos;t exist or isn&apos;t yours.</p>
+        <Link href="/dashboard" className="mt-4">
+          <Button variant="outline"><ArrowLeft className="mr-2 h-4 w-4" />Back to dashboard</Button>
+        </Link>
       </div>
     );
   }
 
   return (
     <div className="mx-auto max-w-2xl">
-      <h1 className="text-2xl font-bold text-slate-900">Post a walk-in interview</h1>
+      <Link href="/dashboard" className="inline-flex items-center text-sm text-slate-500 hover:text-slate-800">
+        <ArrowLeft className="mr-1 h-4 w-4" />Back to dashboard
+      </Link>
+      <h1 className="mt-3 text-2xl font-bold text-slate-900">Edit walk-in interview</h1>
       <p className="mt-1 text-sm text-slate-600">
-        Rs {PRICE} for 7 days. Your listing goes live instantly after payment.
+        Update your listing details. This does not change its status or payment.
       </p>
 
-      <form onSubmit={(e) => { e.preventDefault(); handleSaveDraft(); }} className="mt-6 space-y-4">
+      <form onSubmit={(e) => { e.preventDefault(); handleSave(); }} className="mt-6 space-y-4">
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-1.5">
             <Label htmlFor="company">Company name *</Label>
@@ -409,17 +312,17 @@ function PostWalkinInner() {
 
         <Button type="submit" disabled={saving} className="w-full">
           {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-          <Eye className="mr-2 h-4 w-4" />Preview &amp; Continue
+          <Save className="mr-2 h-4 w-4" />Save changes
         </Button>
       </form>
     </div>
   );
 }
 
-export default function PostWalkinPage() {
+export default function EditWalkinPage() {
   return (
     <RequireRecruiter>
-      <PostWalkinInner />
+      <EditWalkinInner />
     </RequireRecruiter>
   );
 }
