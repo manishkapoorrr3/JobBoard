@@ -8,7 +8,7 @@ import { Walkin, whatsappApplyUrl, formatSalaryFull } from '@/lib/types';
 import { ReportButton } from '@/components/report-button';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { ArrowLeft, MapPin, Clock, MessageCircle, Phone, Users, GraduationCap, Moon, Car, Languages, Inbox, Share2 } from 'lucide-react';
+import { ArrowLeft, MapPin, Clock, MessageCircle, Phone, Users, GraduationCap, Moon, Car, Languages, Inbox, Share2, Pencil } from 'lucide-react';
 import { formatWalkinDate, formatDate } from '@/lib/format';
 
 export default function WalkinDetailPage() {
@@ -64,9 +64,16 @@ export default function WalkinDetailPage() {
 
   return (
     <div className="mx-auto max-w-2xl space-y-5">
-      <Link href="/walkins" className="inline-flex items-center text-sm text-slate-500 hover:text-slate-800">
-        <ArrowLeft className="mr-1 h-4 w-4" />All walk-ins
-      </Link>
+      <div className="flex items-center justify-between">
+        <Link href="/walkins" className="inline-flex items-center text-sm text-slate-500 hover:text-slate-800">
+          <ArrowLeft className="mr-1 h-4 w-4" />All walk-ins
+        </Link>
+        {user?.id === walkin.posted_by_user_id && (
+          <Link href={`/walkins/${walkin.id}/edit`} className="inline-flex items-center gap-1 text-sm font-medium text-emerald-600 hover:underline">
+            <Pencil className="h-3.5 w-3.5" />Edit listing
+          </Link>
+        )}
+      </div>
 
       {(walkin.status === 'draft' || walkin.status === 'pending') && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">

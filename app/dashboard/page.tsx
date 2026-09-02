@@ -7,14 +7,17 @@ import { Walkin, formatSalary } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 import { toast } from 'sonner';
-import { Loader2, RefreshCw, ExternalLink, Calendar } from 'lucide-react';
+import { Loader2, RefreshCw, ExternalLink, Calendar, Pencil } from 'lucide-react';
 import { formatWalkinDate } from '@/lib/format';
+
+const PRICE = 499;
 
 function DashboardInner() {
   const supabase = getSupabase();
   const { user } = useAuth();
   const [walkins, setWalkins] = useState<Walkin[]>([]);
   const [loading, setLoading] = useState(true);
+  const [renewingId, setRenewingId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -29,16 +32,108 @@ function DashboardInner() {
     })();
   }, [supabase, user]);
 
-  async function renew(id: string) {
+  // Load the Razorpay checkout.js script once.
+  function loadCheckoutScript(): Promise<boolean> {
+    return new Promise((resolve) => {
+      if ((window as any).Razorpay) return resolve(true);
+      const script = document.createElement('script');
+      script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+      script.onload = () => resolve(true);
+      script.onerror = () => resolve(false);
+      document.body.appendChild(script);
+    });
+  }
+
+  // Client-side demo activation (no real payment) — mirrors the post flow.
+  async function demoRenew(id: string) {
     const paidUntil = new Date();
     paidUntil.setDate(paidUntil.getDate() + 7);
     const { error } = await supabase
       .from('walkins')
       .update({ status: 'live', paid_until: paidUntil.toISOString() })
       .eq('id', id);
+    setRenewingId(null);
     if (error) return toast.error('Could not renew listing.');
     setWalkins((prev) => prev.map((w) => (w.id === id ? { ...w, status: 'live', paid_until: paidUntil.toISOString() } : w)));
     toast.success('Renewed for 7 days!');
+  }
+
+  async function renew(id: string) {
+    setRenewingId(id);
+
+    let order: {
+      demo?: boolean;
+      key_id?: string;
+      order_id?: string;
+      amount?: number;
+      currency?: string;
+    };
+    try {
+      const res = await fetch('/api/razorpay/order', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ walkin_id: id }),
+      });
+      order = await res.json();
+    } catch {
+      order = { demo: true };
+    }
+
+    if (order.demo || !order.order_id || !order.key_id) {
+      await demoRenew(id);
+      return;
+    }
+
+    const loaded = await loadCheckoutScript();
+    if (!loaded) {
+      toast.error('Could not load the payment gateway. Please try again.');
+      setRenewingId(null);
+      return;
+    }
+
+    const rzp = new (window as any).Razorpay({
+      key: order.key_id,
+      order_id: order.order_id,
+      amount: order.amount ?? PRICE * 100,
+      currency: order.currency ?? 'INR',
+      name: 'NCR Walk-in',
+      description: 'Renew walk-in listing — 7 days',
+      handler: async (response: {
+        razorpay_order_id: string;
+        razorpay_payment_id: string;
+        razorpay_signature: string;
+      }) => {
+        try {
+          const vRes = await fetch('/api/razorpay/verify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              razorpay_order_id: response.razorpay_order_id,
+              razorpay_payment_id: response.razorpay_payment_id,
+              razorpay_signature: response.razorpay_signature,
+              walkin_id: id,
+            }),
+          });
+          const result = await vRes.json();
+          if (vRes.ok && result.ok) {
+            const paidUntil = result.paid_until ?? new Date(Date.now() + 7 * 86400000).toISOString();
+            setRenewingId(null);
+            setWalkins((prev) => prev.map((w) => (w.id === id ? { ...w, status: 'live', paid_until: paidUntil } : w)));
+            toast.success('Renewed for 7 days!');
+          } else if (result.activateClientSide) {
+            await demoRenew(id);
+          } else {
+            setRenewingId(null);
+            toast.error(result.error || 'Payment verification failed. Please contact support.');
+          }
+        } catch {
+          setRenewingId(null);
+          toast.error('Payment verification failed. Please contact support.');
+        }
+      },
+      modal: { ondismiss: () => setRenewingId(null) },
+    });
+    rzp.open();
   }
 
   const now = new Date();
@@ -95,9 +190,24 @@ function DashboardInner() {
                       <ExternalLink className="mr-1.5 h-3.5 w-3.5" />View
                     </Button>
                   </Link>
+                  <Link href={`/walkins/${w.id}/edit`}>
+                    <Button size="sm" variant="outline">
+                      <Pencil className="mr-1.5 h-3.5 w-3.5" />Edit
+                    </Button>
+                  </Link>
                   {isExpired && (
-                    <Button size="sm" onClick={() => renew(w.id)} className="bg-emerald-600 text-white hover:bg-emerald-700">
-                      <RefreshCw className="mr-1.5 h-3.5 w-3.5" />Renew Rs 499
+                    <Button
+                      size="sm"
+                      onClick={() => renew(w.id)}
+                      disabled={renewingId === w.id}
+                      className="bg-emerald-600 text-white hover:bg-emerald-700"
+                    >
+                      {renewingId === w.id ? (
+                        <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+                      )}
+                      Renew Rs 499
                     </Button>
                   )}
                 </div>
