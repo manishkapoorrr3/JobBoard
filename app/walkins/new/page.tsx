@@ -126,15 +126,16 @@ function PostWalkinInner() {
     if (!createdId) return;
     setPaying(true);
 
-    // Ask the server to create a Razorpay order. When Razorpay is not
-    // configured (or the call fails), the server returns { demo: true } and we
-    // fall back to the existing client-side demo activation.
+    // Ask the server to create a Razorpay order. The server returns
+    // { demo: true } ONLY when Razorpay is not configured — any failure on a
+    // configured deployment is an error, never a free demo activation.
     let order: {
       demo?: boolean;
       key_id?: string;
       order_id?: string;
       amount?: number;
       currency?: string;
+      error?: string;
     };
     try {
       const res = await fetch('/api/razorpay/order', {
@@ -142,11 +143,25 @@ function PostWalkinInner() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ walkin_id: createdId }),
       });
-      order = await res.json();
-    } catch {
-      order = { demo: true };
+      const json = (await res.json().catch(() => ({}))) as typeof order;
+      if (!res.ok) {
+        throw new Error(
+          typeof json.error === 'string' && json.error
+            ? json.error
+            : 'Could not start payment. Please try again.'
+        );
+      }
+      order = json;
+    } catch (e) {
+      setPaying(false);
+      toast.error(
+        e instanceof Error && e.message ? e.message : 'Could not start payment. Please try again.'
+      );
+      return;
     }
 
+    // Demo mode only: the demo fallback runs when (and only when) the server
+    // says Razorpay is unconfigured.
     if (order.demo || !order.order_id || !order.key_id) {
       await activateListing();
       return;
@@ -182,14 +197,14 @@ function PostWalkinInner() {
               walkin_id: createdId,
             }),
           });
-          const result = await vRes.json();
+          const result = (await vRes.json()) as { ok?: boolean; error?: string };
           if (vRes.ok && result.ok) {
             setPaying(false);
             toast.success('Your walk-in is live!');
             router.push('/walkins');
-          } else if (result.activateClientSide) {
-            await activateListing();
           } else {
+            // Only the server (service role) may activate a listing once
+            // Razorpay is configured — there is no client-side fallback.
             setPaying(false);
             toast.error(result.error || 'Payment verification failed. Please contact support.');
           }
@@ -203,6 +218,11 @@ function PostWalkinInner() {
     rzp.open();
   }
 
+  // Client-side DEMO activation — only reachable when the server reports
+  // Razorpay is unconfigured (order API returned { demo: true }). On
+  // deployments with Razorpay configured, the server never returns demo, so
+  // this path is inert, and the DB guard (20260902000000) independently
+  // blocks any browser-side 'live' transition.
   async function activateListing() {
     if (!createdId) return;
     const paidUntil = new Date();
@@ -214,7 +234,7 @@ function PostWalkinInner() {
       .eq('id', createdId);
 
     setPaying(false);
-    if (error) return toast.error('Payment received but listing activation failed. Please contact support.');
+    if (error) return toast.error('Could not activate your listing. Please try again or contact support.');
 
     toast.success('Your walk-in is live!');
     router.push('/walkins');
