@@ -61,7 +61,7 @@ It:
 1. Create a Razorpay account and grab **Key Id** + **Key Secret**
    (Settings → API Keys). Put them in `NEXT_PUBLIC_RAZORPAY_KEY_ID` and
    `RAZORPAY_KEY_SECRET`.
-2. Listing price is fixed at **Rs 499 = 49900 paise** in the server routes.
+2. Listing price is fixed at **Rs 100 = 10000 paise** in the server routes.
 3. Configure a webhook (Settings → Webhooks):
    - **URL:** `https://YOUR_DOMAIN/api/razorpay/webhook`
    - **Secret:** any strong string — also set it as `RAZORPAY_WEBHOOK_SECRET`.
@@ -74,7 +74,7 @@ Payment flow:
   Razorpay is unconfigured or the API call fails).
 - Checkout runs client-side; on success the browser calls
   `POST /api/razorpay/verify`, which checks the HMAC signature, fetches the
-  payment, requires `status === 'captured'` and `amount === 49900`, then
+  payment, requires `status === 'captured'` and `amount === 10000`, then
   activates the walk-in (`status: 'live'`, `paid_until = now + 7 days`).
 - If the service key is missing, verify returns
   `{ demo: true, activateClientSide: true }` and the browser runs the demo

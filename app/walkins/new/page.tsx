@@ -15,7 +15,7 @@ import { NCR_CITIES, EDUCATION_OPTIONS, SHIFT_OPTIONS, LANGUAGE_OPTIONS, formatS
 import { formatWalkinDate, localISODate } from '@/lib/format';
 
 const RAZORPAY_KEY = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID;
-const PRICE = 499;
+const PRICE = 100;
 
 function PostWalkinInner() {
   const supabase = getSupabase();

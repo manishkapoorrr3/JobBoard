@@ -4,7 +4,7 @@
 //  1. Verify the checkout signature: HMAC-SHA256(order_id|payment_id, secret)
 //     compared with a constant-time comparison.
 //  2. Fetch the payment from Razorpay and require status === 'captured' and
-//     amount === 49900 (Rs 499) to defend against tampering.
+//     amount === 10000 (Rs 100) to defend against tampering.
 //  3. Activate the walk-in via the service-role client (status 'live',
 //     paid_until = now + 7 days).
 //
@@ -19,7 +19,7 @@ import { getServiceSupabase } from '@/lib/supabase-admin';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const AMOUNT_PAISE = 49900;
+const AMOUNT_PAISE = 10000;
 
 // Constant-time string comparison over hex signatures.
 function safeEqualHex(a: string, b: string): boolean {
