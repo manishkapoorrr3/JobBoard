@@ -44,7 +44,9 @@ function DashboardInner() {
     });
   }
 
-  // Client-side demo activation (no real payment) — mirrors the post flow.
+  // Client-side DEMO activation (no real payment) — mirrors the post flow.
+  // Only reachable when the server reports Razorpay is unconfigured; the DB
+  // guard (20260902000000) independently blocks browser-side 'live' writes.
   async function demoRenew(id: string) {
     const paidUntil = new Date();
     paidUntil.setDate(paidUntil.getDate() + 7);
@@ -61,12 +63,16 @@ function DashboardInner() {
   async function renew(id: string) {
     setRenewingId(id);
 
+    // The server returns { demo: true } ONLY when Razorpay is unconfigured —
+    // any failure on a configured deployment is an error, never a free demo
+    // activation.
     let order: {
       demo?: boolean;
       key_id?: string;
       order_id?: string;
       amount?: number;
       currency?: string;
+      error?: string;
     };
     try {
       const res = await fetch('/api/razorpay/order', {
@@ -74,11 +80,25 @@ function DashboardInner() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ walkin_id: id }),
       });
-      order = await res.json();
-    } catch {
-      order = { demo: true };
+      const json = (await res.json().catch(() => ({}))) as typeof order;
+      if (!res.ok) {
+        throw new Error(
+          typeof json.error === 'string' && json.error
+            ? json.error
+            : 'Could not start payment. Please try again.'
+        );
+      }
+      order = json;
+    } catch (e) {
+      setRenewingId(null);
+      toast.error(
+        e instanceof Error && e.message ? e.message : 'Could not start payment. Please try again.'
+      );
+      return;
     }
 
+    // Demo mode only: the demo fallback runs when (and only when) the server
+    // says Razorpay is unconfigured.
     if (order.demo || !order.order_id || !order.key_id) {
       await demoRenew(id);
       return;
@@ -114,15 +134,15 @@ function DashboardInner() {
               walkin_id: id,
             }),
           });
-          const result = await vRes.json();
+          const result = (await vRes.json()) as { ok?: boolean; error?: string; paid_until?: string };
           if (vRes.ok && result.ok) {
             const paidUntil = result.paid_until ?? new Date(Date.now() + 7 * 86400000).toISOString();
             setRenewingId(null);
             setWalkins((prev) => prev.map((w) => (w.id === id ? { ...w, status: 'live', paid_until: paidUntil } : w)));
             toast.success('Renewed for 7 days!');
-          } else if (result.activateClientSide) {
-            await demoRenew(id);
           } else {
+            // Only the server (service role) may activate a listing once
+            // Razorpay is configured — there is no client-side fallback.
             setRenewingId(null);
             toast.error(result.error || 'Payment verification failed. Please contact support.');
           }

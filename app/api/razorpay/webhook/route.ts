@@ -5,9 +5,14 @@
 // `payment.captured` or `order.paid`, activate the walk-in referenced by the
 // order's notes.walkin_id via the service-role client.
 //
-// Degrades gracefully: without the webhook secret or the service-role key we
-// acknowledge the event (200) so Razorpay does not retry indefinitely, but do
-// nothing.
+// The activation is idempotent: if the walk-in is already 'live' with a future
+// paid_until, the event is acknowledged without extending the listing again
+// (Razorpay retries on non-2xx, and the checkout verify call may have already
+// activated the same payment).
+//
+// Degrades gracefully: without the webhook secret we reject with 400 only if a
+// signature is present; without the service-role key we acknowledge the event
+// (200) so Razorpay does not retry indefinitely, but do nothing.
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { getServiceSupabase } from '@/lib/supabase-admin';
@@ -30,6 +35,11 @@ export async function POST(req: NextRequest) {
   const raw = await req.text();
 
   if (!webhookSecret) {
+    if (signature) {
+      // A signed event reached us but we cannot verify it — reject so the
+      // event is not silently dropped.
+      return NextResponse.json({ error: 'Invalid signature.' }, { status: 400 });
+    }
     return NextResponse.json({ demo: true });
   }
 
@@ -61,10 +71,31 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, note: 'Service key not configured.' });
   }
 
+  const supabase = getServiceSupabase();
+
+  // Idempotency: don't re-extend a listing that is already live.
+  const { data: existing } = await supabase
+    .from('walkins')
+    .select('status, paid_until')
+    .eq('id', walkinId)
+    .maybeSingle();
+
+  if (
+    existing &&
+    existing.status === 'live' &&
+    existing.paid_until &&
+    new Date(existing.paid_until) > new Date()
+  ) {
+    return NextResponse.json({
+      ok: true,
+      walkin_id: walkinId,
+      note: 'Already live; nothing to do.',
+    });
+  }
+
   const paidUntil = new Date();
   paidUntil.setDate(paidUntil.getDate() + 7);
 
-  const supabase = getServiceSupabase();
   const { error } = await supabase
     .from('walkins')
     .update({ status: 'live', paid_until: paidUntil.toISOString() })

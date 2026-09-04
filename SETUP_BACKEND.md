@@ -19,7 +19,7 @@ same variables in your host (Netlify / Vercel / Bolt) dashboard.
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase → Project Settings → API → Project URL | ✅ public | App can't reach Supabase |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase → Project Settings → API → `anon` public key | ✅ public | App can't reach Supabase |
 | `NEXT_PUBLIC_RAZORPAY_KEY_ID` | Razorpay → Settings → API Keys → Key Id | ✅ public | Payments run in **demo mode** |
-| `SUPABASE_SERVICE_ROLE_KEY` | Supabase → Project Settings → API → `service_role` key | ⛔ **server-only** | Admin API returns **503**; verify falls back to client-side demo activation |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase → Project Settings → API → `service_role` key | ⛔ **server-only** | Admin API returns **503**; verified payments cannot be activated (support error) |
 | `ADMIN_PIN` | You choose it (e.g. a 6-digit PIN) | ⛔ **server-only** | Admin API returns **503** |
 | `RAZORPAY_KEY_SECRET` | Razorpay → Settings → API Keys → Key Secret | ⛔ **server-only** | Payments run in **demo mode** |
 | `RAZORPAY_WEBHOOK_SECRET` | Razorpay → Settings → Webhooks → the secret you set | ⛔ **server-only** | Webhook endpoint no-ops (demo) |
@@ -32,17 +32,23 @@ same variables in your host (Netlify / Vercel / Bolt) dashboard.
 
 ---
 
-## 2. Supabase — apply the SQL migration
+## 2. Supabase — apply the SQL migrations
 
 Apply every file in `supabase/migrations/` in timestamp order. If your project
-is already on the earlier migrations, you only need the newest one:
+is already on the earlier migrations, you only need the two newest ones —
+**in this order** (running 20260901 after 20260902 would overwrite the
+hardening with the older guard body):
 
 ```
 supabase/migrations/20260901000000_harden_reports_and_autohide.sql
+supabase/migrations/20260902000000_enforce_paid_activation.sql
 ```
 
-To apply it, open **Supabase → SQL Editor**, paste the file contents, and run.
-It:
+To apply them, open **Supabase → SQL Editor**, paste each file's contents, and
+run. Success = "Success. No rows returned". Both scripts are idempotent (safe
+to re-run).
+
+`20260901000000_harden_reports_and_autohide.sql`:
 
 - adds partial unique indexes so a user can report a listing only once;
 - recreates `guard_jobs_status` / `guard_walkins_status` so auto-hide can flip a
@@ -53,6 +59,20 @@ It:
   `paid_until` has passed. To enable it: Supabase → Database → Extensions →
   enable `pg_cron`, then uncomment the `cron.schedule(...)` block at the bottom
   of the migration and run it.
+
+`20260902000000_enforce_paid_activation.sql` (run **second**):
+
+- recreates `guard_walkins_status()` so a transition TO `live` is allowed only
+  for the verified-payment route — the `service_role` API caller (used by
+  `/api/razorpay/verify` and `/api/razorpay/webhook`) or trusted server
+  contexts (psql / SQL editor / pg_cron as `postgres` / `supabase_admin`).
+  Browser callers (`anon` / `authenticated`) can never set `live`, so the
+  ₹499 fee cannot be bypassed from the client.
+- keeps the `reported` auto-hide carve-out and the owner rule for all other
+  status transitions; `INSERT`s are unaffected (the trigger is `BEFORE UPDATE`
+  only), so owner `draft` inserts and seeded rows still work.
+- stays `SECURITY DEFINER`, `SET search_path = pg_catalog, public`, with
+  `EXECUTE` revoked from public/anon/authenticated.
 
 ---
 
@@ -68,17 +88,28 @@ It:
    - **Active events:** `payment.captured` and `order.paid`.
    - The webhook activates the walk-in via `order.notes.walkin_id`.
 
-Payment flow:
+Payment flow (hardened):
 
-- `POST /api/razorpay/order` creates an order (returns `{ demo: true }` if
-  Razorpay is unconfigured or the API call fails).
+- `POST /api/razorpay/order` creates an order. It returns `{ demo: true }`
+  ONLY when Razorpay is unconfigured. When Razorpay IS configured, any failure
+  (network, 4xx/5xx from api.razorpay.com) returns a **502 error** — a
+  configured deployment never degrades to a free client-side activation.
 - Checkout runs client-side; on success the browser calls
   `POST /api/razorpay/verify`, which checks the HMAC signature, fetches the
-  payment, requires `status === 'captured'` and `amount === 49900`, then
-  activates the walk-in (`status: 'live'`, `paid_until = now + 7 days`).
-- If the service key is missing, verify returns
-  `{ demo: true, activateClientSide: true }` and the browser runs the demo
-  activation instead.
+  payment, requires `status === 'captured'` and `amount === 49900`, verifies
+  the order's `notes.walkin_id` matches the submitted walk-in (a payment can
+  only ever activate the listing it was created for), then activates the
+  walk-in via the service-role client (`status: 'live'`,
+  `paid_until = now + 7 days`). Activation is idempotent — an already-live
+  listing with a future `paid_until` is not re-extended.
+- When Razorpay is configured but the service key is missing, verify returns a
+  **500 support error**. There is deliberately no client-side fallback: only
+  the server may flip `live`, and the DB guard
+  (`20260902000000_enforce_paid_activation`) blocks browser-side `live`
+  transitions at the database level as well.
+- The client's demo activation (`activateListing` / `demoRenew`) only runs
+  when the order API reports Razorpay is unconfigured, so it is inert on any
+  configured deployment.
 
 ---
 

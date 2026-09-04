@@ -1,9 +1,14 @@
 // Razorpay — create order.
 //
 // Creates a Razorpay order for a walk-in listing (Rs 499 => 49900 paise).
-// Degrades gracefully to demo mode ({ demo: true }) when the Razorpay key id /
-// secret are not configured, or if the Razorpay API call fails, so the frontend
-// can fall back to the existing client-side demo activation.
+//
+// Demo mode: { demo: true } is returned ONLY when the Razorpay key id /
+// secret are not configured — the frontend then uses its client-side demo
+// activation. When Razorpay IS configured, any failure (network error,
+// 4xx/5xx from api.razorpay.com) returns a 502 error instead, so a
+// configured deployment can never silently degrade into a free
+// client-side activation. The DB guard (migration 20260902000000) makes
+// this a hard guarantee regardless.
 import { NextRequest, NextResponse } from 'next/server';
 
 export const runtime = 'nodejs';
@@ -12,11 +17,13 @@ export const dynamic = 'force-dynamic';
 // Fixed listing price in paise (Rs 499).
 const AMOUNT_PAISE = 49900;
 
+const ORDER_ERROR = 'Could not create payment order. Please try again.';
+
 export async function POST(req: NextRequest) {
   const keyId = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID;
   const keySecret = process.env.RAZORPAY_KEY_SECRET;
 
-  // No real Razorpay credentials => demo mode.
+  // Razorpay not configured => demo mode (client-side demo activation).
   if (!keyId || !keySecret) {
     return NextResponse.json({ demo: true });
   }
@@ -49,8 +56,9 @@ export async function POST(req: NextRequest) {
     });
 
     if (!res.ok) {
-      // Razorpay rejected the request — fall back to demo so the user is not blocked.
-      return NextResponse.json({ demo: true });
+      // Razorpay rejected the request — surface an error. Do NOT fall back
+      // to demo mode: a configured deployment must never pay-for-nothing.
+      return NextResponse.json({ error: ORDER_ERROR }, { status: 502 });
     }
 
     const order = await res.json();
@@ -62,6 +70,6 @@ export async function POST(req: NextRequest) {
       currency: order.currency,
     });
   } catch {
-    return NextResponse.json({ demo: true });
+    return NextResponse.json({ error: ORDER_ERROR }, { status: 502 });
   }
 }
