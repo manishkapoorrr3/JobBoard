@@ -25,7 +25,7 @@ export function Header() {
     { href: '/jobs', label: 'Jobs' },
   ];
   if (isRecruiter) {
-    links.push({ href: '/walkins/new', label: 'Post walk-in Rs 499' });
+    links.push({ href: '/walkins/new', label: 'Post walk-in Rs 100' });
     links.push({ href: '/dashboard', label: 'My Listings' });
   }
   if (user && !isRecruiter) {

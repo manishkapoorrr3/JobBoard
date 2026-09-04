@@ -10,7 +10,7 @@ import { toast } from 'sonner';
 import { Loader2, RefreshCw, ExternalLink, Calendar, Pencil } from 'lucide-react';
 import { formatWalkinDate } from '@/lib/format';
 
-const PRICE = 499;
+const PRICE = 100;
 
 function DashboardInner() {
   const supabase = getSupabase();
@@ -207,7 +207,7 @@ function DashboardInner() {
                       ) : (
                         <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
                       )}
-                      Renew Rs 499
+                      Renew Rs {PRICE}
                     </Button>
                   )}
                 </div>

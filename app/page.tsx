@@ -125,7 +125,7 @@ export default function Home() {
       <section className="rounded-xl border border-slate-200 bg-white p-5">
         <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h3 className="font-semibold text-slate-900">Hiring? Post a walk-in — Rs 499</h3>
+            <h3 className="font-semibold text-slate-900">Hiring? Post a walk-in — Rs 100</h3>
             <p className="mt-1 text-sm text-slate-600">
               Your listing goes live instantly. Visible for 7 days. Reach candidates across Delhi NCR.
             </p>

@@ -109,7 +109,7 @@ export default function SignupPage() {
               }`}
             >
               <span className="block text-sm font-semibold text-slate-900">Recruiter / HR</span>
-              <span className="block text-xs text-slate-500">Post walk-ins (Rs 499)</span>
+              <span className="block text-xs text-slate-500">Post walk-ins (Rs 100)</span>
             </button>
           </div>
         </div>

@@ -1,6 +1,6 @@
 // Razorpay — create order.
 //
-// Creates a Razorpay order for a walk-in listing (Rs 499 => 49900 paise).
+// Creates a Razorpay order for a walk-in listing (Rs 100 => 10000 paise).
 // Degrades gracefully to demo mode ({ demo: true }) when the Razorpay key id /
 // secret are not configured, or if the Razorpay API call fails, so the frontend
 // can fall back to the existing client-side demo activation.
@@ -9,8 +9,8 @@ import { NextRequest, NextResponse } from 'next/server';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-// Fixed listing price in paise (Rs 499).
-const AMOUNT_PAISE = 49900;
+// Fixed listing price in paise (Rs 100).
+const AMOUNT_PAISE = 10000;
 
 export async function POST(req: NextRequest) {
   const keyId = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID;
